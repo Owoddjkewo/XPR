@@ -1,0 +1,97 @@
+-- LUVIX HUB | Anti-Cheat Starter
+-- Coloque em ServerScriptService
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local CONFIG = {
+    MaxWalkSpeed = 24,
+    MaxHorizontalSpeed = 38,
+    CheckInterval = 0.5,
+    MaxStrikes = 4
+}
+
+local tracking = {}
+
+local function flag(player, reason)
+    local data = tracking[player]
+    if not data then return end
+
+    data.strikes += 1
+
+    warn(string.format(
+        "[LUVIX HUB] %s | %s | Alertas: %d",
+        player.Name,
+        reason,
+        data.strikes
+    ))
+
+    if data.strikes >= CONFIG.MaxStrikes then
+        player:Kick("LUVIX HUB: movimento suspeito detectado.")
+    end
+end
+
+local function setupPlayer(player)
+    tracking[player] = {
+        strikes = 0,
+        lastPosition = nil,
+        lastCheck = os.clock()
+    }
+
+    player.CharacterAdded:Connect(function(character)
+        local humanoid = character:WaitForChild("Humanoid")
+        local root = character:WaitForChild("HumanoidRootPart")
+
+        tracking[player].lastPosition = root.Position
+        tracking[player].lastCheck = os.clock()
+
+        humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if humanoid.WalkSpeed > CONFIG.MaxWalkSpeed then
+                flag(player, "WalkSpeed acima do limite")
+                humanoid.WalkSpeed = 16
+            end
+        end)
+    end)
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+
+Players.PlayerRemoving:Connect(function(player)
+    tracking[player] = nil
+end)
+
+for _, player in Players:GetPlayers() do
+    task.spawn(setupPlayer, player)
+end
+
+while true do
+    task.wait(CONFIG.CheckInterval)
+
+    for player, data in pairs(tracking) do
+        local character = player.Character
+        local root = character
+            and character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character
+            and character:FindFirstChildOfClass("Humanoid")
+
+        if root and humanoid and humanoid.Health > 0 then
+            local now = os.clock()
+            local elapsed = now - data.lastCheck
+
+            if data.lastPosition and elapsed > 0 then
+                local delta = root.Position - data.lastPosition
+                local horizontalDistance =
+                    Vector3.new(delta.X, 0, delta.Z).Magnitude
+
+                local speed = horizontalDistance / elapsed
+
+                if speed > CONFIG.MaxHorizontalSpeed then
+                    flag(player, "Velocidade horizontal suspeita")
+                end
+            end
+
+            data.lastPosition = root.Position
+            data.lastCheck = now
+        end
+    end
+end
